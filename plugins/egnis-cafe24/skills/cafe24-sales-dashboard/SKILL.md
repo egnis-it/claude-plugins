@@ -85,8 +85,12 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/build_sales_dashboard.py" \
 - raw JSON 읽어 일자별 집계
 - 전일 비교값/증감 계산
 - `data/sales_daily.csv` 저장
-- 다일·다몰일 경우 `data/sales_by_mall.csv` 추가
-- `dashboard.html` 생성 (브랜드 셀렉터, 추이 차트, 일자별 표, 몰별 표 포함)
+- 다몰일 경우 `data/sales_by_mall.csv` 추가
+- `dashboard.html` 생성. 이 단일 HTML에는 모든 브랜드 × 모든 일자 데이터가 인라인 JSON으로 들어있어 다음을 **재호출 없이** 사용자가 클릭으로 전환 가능:
+  - 브랜드 토글 (전체 + 각 몰)
+  - 표시 기준 (일/주/월 단위)
+  - 추이 차트 모드 (선택 브랜드 단독 / 전체 브랜드 비교 overlay)
+  - 컬럼 정렬, CSV 다운로드 (현재 뷰 기준)
 
 ### 5단계: 결과 안내
 
@@ -144,6 +148,10 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/build_sales_dashboard.py" \
 | 랩노쉬, drlabnosh | drlabnosh |
 | 메디리즈, medileeds | medileeds |
 | 전체, all | (9개 모두) |
+
+## 디바이스 필터 (PC/모바일)
+
+Cafe24 Admin API `reports/hourlysales`는 **`device_type` 파라미터를 지원하지 않음** (검증 완료, 2026-05-18). PC/모바일 분리가 필요하면 Analytics API의 `sales/orderdetails`를 별도 stage로 추가해야 함 (future work). 현재 skill은 디바이스 합산만 표시한다.
 
 ## API 엔드포인트 참조
 

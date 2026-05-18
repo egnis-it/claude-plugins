@@ -2,19 +2,19 @@
 """
 build_sales_dashboard.py
 
-Reads raw Cafe24 MCP JSON dumps from <raw-dir>, aggregates daily sales,
-writes sales_daily.csv (+ sales_by_mall.csv if multi-mall), and renders
-dashboard.html from the template.
+Reads raw Cafe24 dumps from <raw-dir>, produces a self-contained
+dashboard.html that supports client-side filtering by brand and rebucketing
+to daily/weekly/monthly. Writes companion CSVs.
 
 Inputs in raw-dir:
-  hourlysales_<mall_id>.json              (one per mall, contains all days)
+  hourlysales_<mall_id>.json              (one per mall, all days)
   members_sales_<mall_id>_<YYYY-MM-DD>.json (one per mall per day)
 
 Usage:
   python3 build_sales_dashboard.py \
-    --raw-dir ./reports/cafe24/labnosh/2026-05-12_to_2026-05-18/data/raw \
-    --out-dir ./reports/cafe24/labnosh/2026-05-12_to_2026-05-18 \
-    --brand-label 한끼통살 \
+    --raw-dir ./reports/cafe24/all/2026-05-12_to_2026-05-18/data/raw \
+    --out-dir ./reports/cafe24/all/2026-05-12_to_2026-05-18 \
+    --brand-label 전체 \
     --period-start 2026-05-12 \
     --period-end   2026-05-18
 """
@@ -38,6 +38,8 @@ MALL_LABELS = {
     "drlabnosh": "랩노쉬",
     "medileeds": "메디리즈",
 }
+# Stable order so the brand selector and overlay chart colors are consistent.
+MALL_ORDER = list(MALL_LABELS.keys())
 
 TEMPLATE_PATH = Path(__file__).parent / "templates" / "sales_dashboard.html"
 
@@ -60,10 +62,6 @@ def load_json(path: Path) -> dict | None:
 
 
 def aggregate_hourlysales(raw: dict) -> dict[str, dict]:
-    """
-    Returns {date_str: {orders, items, sales, actual, refund}}.
-    Sums across hours and shop_no.
-    """
     out: dict[str, dict] = {}
     if not raw or not raw.get("ok"):
         return out
@@ -72,32 +70,34 @@ def aggregate_hourlysales(raw: dict) -> dict[str, dict]:
         date = r.get("collection_date")
         if not date:
             continue
-        a = out.setdefault(date, {"orders": 0, "items": 0, "sales": 0, "actual": 0, "refund": 0})
+        a = out.setdefault(date, {"orders": 0, "items": 0, "sales": 0})
         a["orders"] += int(r.get("order_count") or 0)
         a["items"] += int(r.get("item_count") or 0)
         a["sales"] += float(r.get("sales") or 0)
-        a["actual"] += float(r.get("actual_order_amount") or 0)
-        a["refund"] += float(r.get("refund_amount") or 0)
     return out
 
 
-def aggregate_members_sales(raw: dict) -> dict[str, int]:
-    """
-    Returns {date_str: buyers_count} (member_order_count + nonmember_order_count).
-    Note: members/sales returns 1 row per call (period totals), so caller must
-    invoke per-day for daily granularity.
-    """
+def members_sales_buyers(raw: dict) -> int:
     if not raw or not raw.get("ok"):
-        return {}
+        return 0
     rows = raw.get("data", {}).get("sales", []) or []
     if not rows:
-        return {}
-    # Single-day call: 1 row aggregated for the date supplied
+        return 0
     row = rows[0]
-    m = int(row.get("member_order_count") or 0)
-    n = int(row.get("nonmember_order_count") or 0)
-    # date is encoded in the filename; caller resolves
-    return {"_total": m + n}
+    return int(row.get("member_order_count") or 0) + int(row.get("nonmember_order_count") or 0)
+
+
+def discover_mall_ids(raw_dir: Path) -> list[str]:
+    found: set[str] = set()
+    for p in raw_dir.glob("hourlysales_*.json"):
+        found.add(p.stem.replace("hourlysales_", ""))
+    for p in raw_dir.glob("members_sales_*.json"):
+        stem = p.stem.replace("members_sales_", "")
+        idx = stem.rfind("_")
+        if idx > 0:
+            found.add(stem[:idx])
+    # Keep canonical order; unknown malls appended last.
+    return [m for m in MALL_ORDER if m in found] + sorted(m for m in found if m not in MALL_ORDER)
 
 
 def build(args) -> int:
@@ -110,45 +110,33 @@ def build(args) -> int:
     period_start = dt.date.fromisoformat(args.period_start)
     period_end = dt.date.fromisoformat(args.period_end)
     days = [d.isoformat() for d in daterange(period_start, period_end)]
+    prev_day = (period_start - dt.timedelta(days=1)).isoformat()
 
-    # Discover all mall_ids present in raw dir
-    mall_ids: set[str] = set()
-    for p in raw_dir.glob("hourlysales_*.json"):
-        mall_ids.add(p.stem.replace("hourlysales_", ""))
-    for p in raw_dir.glob("members_sales_*.json"):
-        # filename: members_sales_<mall>_<date>.json
-        stem = p.stem.replace("members_sales_", "")
-        # mall_id might contain underscore? our mall_ids don't, so split rfind '_'
-        idx = stem.rfind("_")
-        if idx > 0:
-            mall_ids.add(stem[:idx])
-    mall_ids_list = sorted(mall_ids)
-    if not mall_ids_list:
+    mall_ids = discover_mall_ids(raw_dir)
+    if not mall_ids:
         print(f"[error] no raw JSON files found in {raw_dir}", file=sys.stderr)
         return 1
 
-    # Per-mall daily aggregates
-    # mall_data[mall_id][date] = {orders, items, sales, buyers, actual, refund}
+    # Per-mall daily rows + prev-day baseline for compare.
+    # mall_data[mall_id][date] = {orders, items, sales, buyers}
     mall_data: dict[str, dict[str, dict]] = {}
-    for mall in mall_ids_list:
-        hs = load_json(raw_dir / f"hourlysales_{mall}.json")
-        agg = aggregate_hourlysales(hs)
-        per_day = {}
+    mall_prev_sales: dict[str, float] = {}
+    for mall in mall_ids:
+        hs_agg = aggregate_hourlysales(load_json(raw_dir / f"hourlysales_{mall}.json"))
+        per_day: dict[str, dict] = {}
         for d in days:
-            row = agg.get(d, {"orders": 0, "items": 0, "sales": 0, "actual": 0, "refund": 0})
-            # buyers from per-day members/sales
-            ms = load_json(raw_dir / f"members_sales_{mall}_{d}.json")
-            buyers = 0
-            if ms:
-                buyers = aggregate_members_sales(ms).get("_total", 0)
+            row = hs_agg.get(d, {"orders": 0, "items": 0, "sales": 0})
+            buyers = members_sales_buyers(load_json(raw_dir / f"members_sales_{mall}_{d}.json"))
             per_day[d] = {**row, "buyers": buyers}
         mall_data[mall] = per_day
+        if prev_day in hs_agg:
+            mall_prev_sales[mall] = hs_agg[prev_day]["sales"]
 
-    # Combined daily across all malls
+    # ---- Combined daily across all malls (for CSV + the "전체" default view) ----
     daily_rows = []
     for d in days:
         tot = {"orders": 0, "items": 0, "sales": 0, "buyers": 0}
-        for mall in mall_ids_list:
+        for mall in mall_ids:
             row = mall_data[mall].get(d, {})
             tot["orders"] += row.get("orders", 0)
             tot["items"] += row.get("items", 0)
@@ -156,52 +144,19 @@ def build(args) -> int:
             tot["buyers"] += row.get("buyers", 0)
         daily_rows.append({"date": d, **tot})
 
-    # Previous-day compare from the FULL window (so the first display day also has compare).
-    # We rely on caller to also fetch period_start - 1 day; if absent, compare=None for day 0.
-    prev_day = (period_start - dt.timedelta(days=1)).isoformat()
-    prev_sales_total = 0
-    have_prev = False
-    for mall in mall_ids_list:
-        hs = load_json(raw_dir / f"hourlysales_{mall}.json")
-        agg = aggregate_hourlysales(hs)
-        if prev_day in agg:
-            prev_sales_total += agg[prev_day]["sales"]
-            have_prev = True
-
-    # Fill compare/delta
-    last_sales = prev_sales_total if have_prev else None
+    prev_sales_total = sum(mall_prev_sales.values()) if mall_prev_sales else None
+    last_sales = prev_sales_total
     for row in daily_rows:
         row["compare"] = last_sales
         row["delta"] = (row["sales"] - last_sales) if last_sales is not None else None
         last_sales = row["sales"]
 
-    # KPI totals
     total_buyers = sum(r["buyers"] for r in daily_rows)
     total_orders = sum(r["orders"] for r in daily_rows)
     total_items = sum(r["items"] for r in daily_rows)
     total_sales = sum(r["sales"] for r in daily_rows)
 
-    # by_mall (only useful if >1 mall)
-    by_mall_rows = []
-    if len(mall_ids_list) > 1:
-        for mall in mall_ids_list:
-            agg = {"buyers": 0, "orders": 0, "items": 0, "sales": 0}
-            for d in days:
-                row = mall_data[mall].get(d, {})
-                agg["buyers"] += row.get("buyers", 0)
-                agg["orders"] += row.get("orders", 0)
-                agg["items"] += row.get("items", 0)
-                agg["sales"] += row.get("sales", 0)
-            aov = int(agg["sales"] / agg["orders"]) if agg["orders"] else 0
-            by_mall_rows.append({
-                "mall_id": mall,
-                "mall_label": MALL_LABELS.get(mall, mall),
-                **agg,
-                "aov": aov,
-            })
-        by_mall_rows.sort(key=lambda r: r["sales"], reverse=True)
-
-    # ---- Write CSVs ----
+    # ---- CSV outputs ----
     csv_path = data_dir / "sales_daily.csv"
     with csv_path.open("w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f)
@@ -216,7 +171,23 @@ def build(args) -> int:
         w.writerow([])
         w.writerow(["합계", total_buyers, total_orders, total_items, int(total_sales), "", ""])
 
-    if by_mall_rows:
+    # by_mall CSV — only if >1 mall in raw dir.
+    by_mall_rows = []
+    if len(mall_ids) > 1:
+        for mall in mall_ids:
+            agg = {"buyers": 0, "orders": 0, "items": 0, "sales": 0}
+            for d in days:
+                row = mall_data[mall].get(d, {})
+                for k in agg:
+                    agg[k] += row.get(k, 0)
+            aov = int(agg["sales"] / agg["orders"]) if agg["orders"] else 0
+            by_mall_rows.append({
+                "mall_id": mall,
+                "mall_label": MALL_LABELS.get(mall, mall),
+                **agg,
+                "aov": aov,
+            })
+        by_mall_rows.sort(key=lambda r: r["sales"], reverse=True)
         by_mall_path = data_dir / "sales_by_mall.csv"
         with by_mall_path.open("w", newline="", encoding="utf-8-sig") as f:
             w = csv.writer(f)
@@ -227,53 +198,44 @@ def build(args) -> int:
                     r["orders"], r["items"], int(r["sales"]), r["aov"],
                 ])
 
+    # ---- JSON payloads inlined into the HTML ----
+    # MALL_DATA[mall_id] = { label, prev_sales, days: [{date, buyers, orders, items, sales}, ...] }
+    mall_data_json = {}
+    for mall in mall_ids:
+        mall_data_json[mall] = {
+            "label": MALL_LABELS.get(mall, mall),
+            "prev_sales": int(mall_prev_sales.get(mall, 0)),
+            "has_prev": mall in mall_prev_sales,
+            "days": [
+                {
+                    "date": d,
+                    "buyers": mall_data[mall][d]["buyers"],
+                    "orders": mall_data[mall][d]["orders"],
+                    "items": mall_data[mall][d]["items"],
+                    "sales": int(mall_data[mall][d]["sales"]),
+                }
+                for d in days
+            ],
+        }
+
     # ---- Render HTML ----
     tpl = TEMPLATE_PATH.read_text(encoding="utf-8")
     period_label = f"{args.period_start} ~ {args.period_end}"
     period_days = (period_end - period_start).days + 1
     generated_at = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    daily_json = [
-        {
-            "date": r["date"],
-            "buyers": r["buyers"],
-            "orders": r["orders"],
-            "items": r["items"],
-            "sales": int(r["sales"]),
-            "compare": None if r["compare"] is None else int(r["compare"]),
-            "delta": None if r["delta"] is None else int(r["delta"]),
-        }
-        for r in daily_rows
-    ]
-    by_mall_json = [
-        {
-            "mall_id": r["mall_id"],
-            "mall_label": r["mall_label"],
-            "buyers": r["buyers"],
-            "orders": r["orders"],
-            "items": r["items"],
-            "sales": int(r["sales"]),
-            "aov": r["aov"],
-        }
-        for r in by_mall_rows
-    ]
-
     html = (
         tpl.replace("__BRAND_LABEL__", args.brand_label)
            .replace("__PERIOD_LABEL__", period_label)
            .replace("__PERIOD_DAYS__", str(period_days))
            .replace("__PERIOD_FILE__", f"{args.period_start}_to_{args.period_end}")
+           .replace("__PERIOD_START__", args.period_start)
+           .replace("__PERIOD_END__", args.period_end)
            .replace("__GENERATED_AT__", generated_at)
-           .replace("__KPI_BUYERS__", f"{total_buyers:,}")
-           .replace("__KPI_ORDERS__", f"{total_orders:,}")
-           .replace("__KPI_ITEMS__", f"{total_items:,}")
-           .replace("__KPI_SALES__", f"{int(total_sales):,}")
-           .replace("__DAILY_JSON__", json.dumps(daily_json, ensure_ascii=False))
-           .replace("__BY_MALL_JSON__", json.dumps(by_mall_json, ensure_ascii=False))
+           .replace("__MALL_DATA_JSON__", json.dumps(mall_data_json, ensure_ascii=False))
     )
     (out_dir / "dashboard.html").write_text(html, encoding="utf-8")
 
-    # ---- Console summary ----
     print(f"✓ dashboard.html  → {out_dir / 'dashboard.html'}")
     print(f"✓ sales_daily.csv → {csv_path}")
     if by_mall_rows:

@@ -10,131 +10,194 @@
   .num { font-variant-numeric: tabular-nums; }
   .delta-pos { color: #059669; }
   .delta-neg { color: #dc2626; }
-  th.sortable { cursor: pointer; user-select: none; }
+  th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
   th.sortable:hover { background-color: #f3f4f6; }
-  th.sortable::after { content: " ↕"; color: #9ca3af; font-size: 0.75rem; }
+  th.sortable::after { content: " ↕"; color: #9ca3af; font-size: 0.7rem; }
   th.sort-asc::after { content: " ↑"; color: #2563eb; }
   th.sort-desc::after { content: " ↓"; color: #2563eb; }
+  .btn-toggle { padding: 6px 14px; font-size: 0.875rem; border-radius: 6px; transition: all 0.15s; }
+  .btn-toggle-on { background-color: #1f2937; color: white; }
+  .btn-toggle-off { background-color: white; color: #4b5563; border: 1px solid #d1d5db; }
+  .btn-toggle-off:hover { background-color: #f9fafb; }
+  .chip { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 500; }
 </style>
 </head>
-<body class="bg-gray-50 text-gray-800">
+<body class="bg-gray-50 text-gray-800 min-h-screen">
 
 <div class="max-w-7xl mx-auto p-6 md:p-10">
 
   <!-- Header -->
   <div class="flex items-baseline gap-3 mb-6">
-    <h1 class="text-2xl font-bold">매출 종합 분석</h1>
-    <span class="text-sm text-gray-500">__BRAND_LABEL__ · __PERIOD_LABEL__</span>
+    <h1 class="text-2xl font-bold">📊 매출 종합 분석</h1>
+    <span id="header-subtitle" class="text-sm text-gray-500"></span>
   </div>
 
-  <!-- Filter card (read-only display) -->
-  <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
-    <div class="grid grid-cols-[80px_1fr] gap-y-3 text-sm">
+  <!-- Filter card -->
+  <div class="bg-white border border-gray-200 rounded-xl p-5 mb-6 shadow-sm">
+    <div class="grid grid-cols-[80px_1fr] gap-y-4 items-center text-sm">
       <div class="text-gray-500">조회기간</div>
-      <div class="font-medium">__PERIOD_LABEL__ <span class="text-gray-400">(__PERIOD_DAYS__일)</span></div>
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="text-gray-700 font-medium num">__PERIOD_LABEL__</span>
+        <span class="text-gray-400 text-xs">(__PERIOD_DAYS__일)</span>
+      </div>
+
       <div class="text-gray-500">브랜드</div>
-      <div class="font-medium">__BRAND_LABEL__</div>
-      <div class="text-gray-500">생성시각</div>
-      <div class="text-gray-500">__GENERATED_AT__</div>
+      <div class="flex flex-wrap items-center gap-2" id="brand-toggle-group">
+      </div>
+
+      <div class="text-gray-500">표시 기준</div>
+      <div class="flex items-center gap-2" id="unit-toggle-group">
+        <button class="btn-toggle btn-toggle-on" data-unit="daily">일 단위</button>
+        <button class="btn-toggle btn-toggle-off" data-unit="weekly">주 단위</button>
+        <button class="btn-toggle btn-toggle-off" data-unit="monthly">월 단위</button>
+      </div>
+    </div>
+    <div class="mt-4 pt-3 border-t border-gray-100 text-xs text-gray-400">
+      생성시각: __GENERATED_AT__
     </div>
   </div>
 
   <!-- KPI cards -->
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-    <div class="bg-white border border-gray-200 rounded-lg p-4">
+    <div class="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
       <div class="text-xs text-gray-500 mb-1">구매자수 합계</div>
-      <div class="text-2xl font-semibold num">__KPI_BUYERS__<span class="text-sm text-gray-400 ml-1">명</span></div>
+      <div class="text-2xl font-semibold num" id="kpi-buyers">—</div>
+      <div class="text-xs text-gray-400 mt-1">명</div>
     </div>
-    <div class="bg-white border border-gray-200 rounded-lg p-4">
+    <div class="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
       <div class="text-xs text-gray-500 mb-1">구매건수 합계</div>
-      <div class="text-2xl font-semibold num">__KPI_ORDERS__<span class="text-sm text-gray-400 ml-1">건</span></div>
+      <div class="text-2xl font-semibold num" id="kpi-orders">—</div>
+      <div class="text-xs text-gray-400 mt-1">건</div>
     </div>
-    <div class="bg-white border border-gray-200 rounded-lg p-4">
+    <div class="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
       <div class="text-xs text-gray-500 mb-1">구매개수 합계</div>
-      <div class="text-2xl font-semibold num">__KPI_ITEMS__<span class="text-sm text-gray-400 ml-1">개</span></div>
+      <div class="text-2xl font-semibold num" id="kpi-items">—</div>
+      <div class="text-xs text-gray-400 mt-1">개</div>
     </div>
-    <div class="bg-white border border-gray-200 rounded-lg p-4">
+    <div class="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
       <div class="text-xs text-gray-500 mb-1">매출액 합계</div>
-      <div class="text-2xl font-semibold num">₩__KPI_SALES__</div>
+      <div class="text-2xl font-semibold num">₩<span id="kpi-sales">—</span></div>
+      <div class="text-xs text-gray-400 mt-1">원</div>
     </div>
   </div>
 
   <!-- Trend chart -->
-  <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+  <div class="bg-white border border-gray-200 rounded-xl p-5 mb-6 shadow-sm">
     <div class="flex items-center justify-between mb-3">
-      <h2 class="text-base font-semibold">매출 추이</h2>
-      <div class="text-xs text-gray-400">단위: 원</div>
+      <div>
+        <h2 class="text-base font-semibold">매출 추이</h2>
+        <p class="text-xs text-gray-400 mt-0.5" id="chart-mode-label">선택한 브랜드의 시점별 매출</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="chart-mode-single" class="btn-toggle btn-toggle-on">선택 브랜드</button>
+        <button id="chart-mode-overlay" class="btn-toggle btn-toggle-off">브랜드 비교</button>
+      </div>
     </div>
-    <div class="h-72">
+    <div class="h-80">
       <canvas id="salesChart"></canvas>
     </div>
   </div>
 
-  <!-- Daily table -->
-  <div class="bg-white border border-gray-200 rounded-lg overflow-hidden mb-6">
+  <!-- Bucket table -->
+  <div class="bg-white border border-gray-200 rounded-xl overflow-hidden mb-6 shadow-sm">
     <div class="flex items-center justify-between px-5 py-4 border-b border-gray-200">
-      <h2 class="text-base font-semibold">일자별 매출 (전일 비교)</h2>
-      <button onclick="downloadCSV()" class="text-xs px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50">⬇ CSV 다운로드</button>
+      <h2 class="text-base font-semibold" id="bucket-table-title">일자별 매출 (전일 비교)</h2>
+      <button onclick="downloadCSV()" class="text-xs px-3 py-1.5 border border-gray-300 rounded-md hover:bg-gray-50">⬇ CSV 다운로드</button>
     </div>
-    <table class="w-full text-sm">
-      <thead class="bg-gray-50 text-gray-600">
-        <tr>
-          <th class="sortable text-left px-4 py-3 font-medium" data-col="date" data-type="str">일시</th>
-          <th class="sortable text-right px-4 py-3 font-medium" data-col="buyers" data-type="num">구매자수</th>
-          <th class="sortable text-right px-4 py-3 font-medium" data-col="orders" data-type="num">구매건수</th>
-          <th class="sortable text-right px-4 py-3 font-medium" data-col="items" data-type="num">구매개수</th>
-          <th class="sortable text-right px-4 py-3 font-medium" data-col="sales" data-type="num">매출액</th>
-          <th class="sortable text-right px-4 py-3 font-medium" data-col="compare" data-type="num">비교값(전일)</th>
-          <th class="sortable text-right px-4 py-3 font-medium" data-col="delta" data-type="num">증감</th>
-        </tr>
-      </thead>
-      <tbody id="dailyTbody"></tbody>
-      <tfoot class="bg-gray-50 border-t-2 border-gray-200 font-medium">
-        <tr>
-          <td class="px-4 py-3">합계</td>
-          <td class="px-4 py-3 text-right num">__KPI_BUYERS__명</td>
-          <td class="px-4 py-3 text-right num">__KPI_ORDERS__건</td>
-          <td class="px-4 py-3 text-right num">__KPI_ITEMS__개</td>
-          <td class="px-4 py-3 text-right num">__KPI_SALES__</td>
-          <td class="px-4 py-3"></td>
-          <td class="px-4 py-3"></td>
-        </tr>
-      </tfoot>
-    </table>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 text-gray-600">
+          <tr>
+            <th class="sortable text-left px-4 py-3 font-medium" data-col="bucket" data-type="str">일시</th>
+            <th class="sortable text-right px-4 py-3 font-medium" data-col="buyers" data-type="num">구매자수</th>
+            <th class="sortable text-right px-4 py-3 font-medium" data-col="orders" data-type="num">구매건수</th>
+            <th class="sortable text-right px-4 py-3 font-medium" data-col="items" data-type="num">구매개수</th>
+            <th class="sortable text-right px-4 py-3 font-medium" data-col="sales" data-type="num">매출액</th>
+            <th class="sortable text-right px-4 py-3 font-medium" data-col="compare" data-type="num">비교값</th>
+            <th class="sortable text-right px-4 py-3 font-medium" data-col="delta" data-type="num">증감</th>
+          </tr>
+        </thead>
+        <tbody id="bucketTbody"></tbody>
+        <tfoot class="bg-gray-50 border-t-2 border-gray-200 font-medium">
+          <tr>
+            <td class="px-4 py-3">합계</td>
+            <td class="px-4 py-3 text-right num" id="tot-buyers">—</td>
+            <td class="px-4 py-3 text-right num" id="tot-orders">—</td>
+            <td class="px-4 py-3 text-right num" id="tot-items">—</td>
+            <td class="px-4 py-3 text-right num" id="tot-sales">—</td>
+            <td class="px-4 py-3"></td>
+            <td class="px-4 py-3"></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
   </div>
 
-  <!-- Per-mall breakdown (only shown if multi-mall) -->
-  <div id="byMallSection" class="bg-white border border-gray-200 rounded-lg overflow-hidden mb-6" style="display:none;">
+  <!-- Per-mall table -->
+  <div id="byMallSection" class="bg-white border border-gray-200 rounded-xl overflow-hidden mb-6 shadow-sm" style="display:none;">
     <div class="px-5 py-4 border-b border-gray-200">
       <h2 class="text-base font-semibold">자사몰별 매출 (기간 합계)</h2>
+      <p class="text-xs text-gray-400 mt-1">행을 클릭하면 해당 브랜드만 표시합니다.</p>
     </div>
-    <table class="w-full text-sm">
-      <thead class="bg-gray-50 text-gray-600">
-        <tr>
-          <th class="sortable text-left px-4 py-3 font-medium" data-col="mall_label" data-type="str">자사몰</th>
-          <th class="sortable text-right px-4 py-3 font-medium" data-col="buyers" data-type="num">구매자수</th>
-          <th class="sortable text-right px-4 py-3 font-medium" data-col="orders" data-type="num">구매건수</th>
-          <th class="sortable text-right px-4 py-3 font-medium" data-col="items" data-type="num">구매개수</th>
-          <th class="sortable text-right px-4 py-3 font-medium" data-col="sales" data-type="num">매출액</th>
-          <th class="sortable text-right px-4 py-3 font-medium" data-col="aov" data-type="num">건당 객단가</th>
-        </tr>
-      </thead>
-      <tbody id="byMallTbody"></tbody>
-    </table>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 text-gray-600">
+          <tr>
+            <th class="sortable text-left px-4 py-3 font-medium" data-col="mall_label" data-type="str">자사몰</th>
+            <th class="sortable text-right px-4 py-3 font-medium" data-col="buyers" data-type="num">구매자수</th>
+            <th class="sortable text-right px-4 py-3 font-medium" data-col="orders" data-type="num">구매건수</th>
+            <th class="sortable text-right px-4 py-3 font-medium" data-col="items" data-type="num">구매개수</th>
+            <th class="sortable text-right px-4 py-3 font-medium" data-col="sales" data-type="num">매출액</th>
+            <th class="sortable text-right px-4 py-3 font-medium" data-col="aov" data-type="num">건당 객단가</th>
+            <th class="sortable text-right px-4 py-3 font-medium" data-col="share" data-type="num">매출 비중</th>
+          </tr>
+        </thead>
+        <tbody id="byMallTbody"></tbody>
+      </table>
+    </div>
   </div>
 
-  <div class="text-xs text-gray-400 mt-8">
-    데이터 출처: Cafe24 Admin reports/hourlysales + Analytics members/sales · egnis-cafe24 plugin
+  <div class="text-xs text-gray-400 mt-8 flex items-center gap-2">
+    <span class="chip bg-gray-100 text-gray-500">데이터 출처</span>
+    Cafe24 Admin <code class="text-[11px] text-gray-500">reports/hourlysales</code> + Analytics <code class="text-[11px] text-gray-500">members/sales</code>
+    · egnis-cafe24 plugin
   </div>
 </div>
 
 <script>
-// Injected by Python:
-const DAILY_DATA = __DAILY_JSON__;
-const BY_MALL_DATA = __BY_MALL_JSON__;
+// ===========================================================================
+// Data injected by the Python builder.
+// MALL_DATA[mall_id] = {
+//   label: string,
+//   prev_sales: number,     // day before period_start (for first-day compare)
+//   has_prev: boolean,
+//   days: [{ date, buyers, orders, items, sales }, ...]
+// }
+// ===========================================================================
+const MALL_DATA = __MALL_DATA_JSON__;
+const PERIOD_START = '__PERIOD_START__';
+const PERIOD_END = '__PERIOD_END__';
+const PERIOD_DAYS = parseInt('__PERIOD_DAYS__', 10);
+
+const MALL_IDS = Object.keys(MALL_DATA);
+const ALL_BRANDS = '__all__';
+
+const MALL_COLORS = {
+  cloop: '#2563eb',         drlabnosh: '#7c3aed',  labnosh: '#db2777',
+  braye: '#f59e0b',         oneday1ball: '#10b981', groceryseoul: '#0ea5e9',
+  exerapy: '#ef4444',       sprint: '#6366f1',     medileeds: '#84cc16',
+};
+const ALL_COLOR = '#1f2937';
+
+let state = {
+  brand: ALL_BRANDS,
+  unit: 'daily',
+  chartMode: 'single',
+  sort: { col: null, dir: 1 },
+};
 
 const fmtNum = (n) => (n == null ? '' : Number(n).toLocaleString('ko-KR'));
-const fmtWon = (n) => (n == null ? '' : '₩' + Number(n).toLocaleString('ko-KR'));
+const fmtMoney = (n) => (n == null ? '' : '₩' + Number(n).toLocaleString('ko-KR'));
 const fmtDelta = (n) => {
   if (n == null) return '<span class="text-gray-300">—</span>';
   const v = Number(n);
@@ -144,12 +207,133 @@ const fmtDelta = (n) => {
   return `<span class="${cls} num">${sign}${v.toLocaleString('ko-KR')}</span>`;
 };
 
-// Render daily table
-function renderDaily(rows) {
-  const tbody = document.getElementById('dailyTbody');
+function brandDays(brand) {
+  if (brand !== ALL_BRANDS) {
+    return MALL_DATA[brand].days.map(d => ({ ...d }));
+  }
+  const acc = {};
+  for (const mall of MALL_IDS) {
+    for (const d of MALL_DATA[mall].days) {
+      const a = acc[d.date] ?? (acc[d.date] = { date: d.date, buyers: 0, orders: 0, items: 0, sales: 0 });
+      a.buyers += d.buyers;
+      a.orders += d.orders;
+      a.items += d.items;
+      a.sales += d.sales;
+    }
+  }
+  return Object.values(acc).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function brandPrevSales(brand) {
+  if (brand !== ALL_BRANDS) {
+    return MALL_DATA[brand].has_prev ? MALL_DATA[brand].prev_sales : null;
+  }
+  let total = 0, anyPrev = false;
+  for (const mall of MALL_IDS) {
+    if (MALL_DATA[mall].has_prev) { total += MALL_DATA[mall].prev_sales; anyPrev = true; }
+  }
+  return anyPrev ? total : null;
+}
+
+function isoWeekKey(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  const dayNum = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((date - yearStart) / 86400000 + 1) / 7);
+  return `${date.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+function monthKey(dateStr) { return dateStr.slice(0, 7); }
+
+function bucketize(dailyRows, unit) {
+  if (unit === 'daily') {
+    return dailyRows.map(r => ({ bucket: r.date, ...r }));
+  }
+  const keyFn = unit === 'weekly' ? isoWeekKey : monthKey;
+  const buckets = {};
+  for (const r of dailyRows) {
+    const k = keyFn(r.date);
+    const b = buckets[k] ?? (buckets[k] = { bucket: k, buyers: 0, orders: 0, items: 0, sales: 0 });
+    b.buyers += r.buyers; b.orders += r.orders; b.items += r.items; b.sales += r.sales;
+  }
+  return Object.values(buckets).sort((a, b) => a.bucket.localeCompare(b.bucket));
+}
+
+function withCompare(rows, baselinePrev) {
+  let last = baselinePrev;
+  return rows.map(r => {
+    const out = { ...r, compare: last, delta: last == null ? null : r.sales - last };
+    last = r.sales;
+    return out;
+  });
+}
+
+function bucketDisplayLabel(bucket, unit) {
+  if (unit === 'daily') return bucket;
+  if (unit === 'weekly') {
+    const [y, w] = bucket.split('-W');
+    return `${y}년 ${parseInt(w, 10)}주차`;
+  }
+  return `${bucket.slice(0, 4)}년 ${parseInt(bucket.slice(5, 7), 10)}월`;
+}
+
+let chart = null;
+
+function render() {
+  const dailyRows = brandDays(state.brand);
+  const baselinePrev = state.unit === 'daily' ? brandPrevSales(state.brand) : null;
+  const buckets = withCompare(bucketize(dailyRows, state.unit), baselinePrev);
+
+  const tot = buckets.reduce((acc, r) => ({
+    buyers: acc.buyers + r.buyers, orders: acc.orders + r.orders,
+    items: acc.items + r.items, sales: acc.sales + r.sales,
+  }), { buyers: 0, orders: 0, items: 0, sales: 0 });
+  document.getElementById('kpi-buyers').textContent = fmtNum(tot.buyers);
+  document.getElementById('kpi-orders').textContent = fmtNum(tot.orders);
+  document.getElementById('kpi-items').textContent = fmtNum(tot.items);
+  document.getElementById('kpi-sales').textContent = fmtNum(tot.sales);
+  document.getElementById('tot-buyers').textContent = fmtNum(tot.buyers) + '명';
+  document.getElementById('tot-orders').textContent = fmtNum(tot.orders) + '건';
+  document.getElementById('tot-items').textContent = fmtNum(tot.items) + '개';
+  document.getElementById('tot-sales').textContent = fmtMoney(tot.sales);
+
+  const brandLabel = state.brand === ALL_BRANDS ? '전체' : MALL_DATA[state.brand].label;
+  const unitLabel = state.unit === 'daily' ? '일 단위' : (state.unit === 'weekly' ? '주 단위' : '월 단위');
+  document.getElementById('header-subtitle').textContent =
+    `${brandLabel} · ${PERIOD_START} ~ ${PERIOD_END} · ${unitLabel}`;
+  document.getElementById('bucket-table-title').textContent =
+    `${unitLabel} 매출 (전 ${state.unit === 'daily' ? '일' : (state.unit === 'weekly' ? '주' : '월')} 비교)`;
+
+  renderBucketTable(buckets);
+
+  if (state.brand === ALL_BRANDS && MALL_IDS.length > 1) {
+    renderByMall();
+    document.getElementById('byMallSection').style.display = '';
+  } else {
+    document.getElementById('byMallSection').style.display = 'none';
+  }
+
+  renderChart(buckets);
+}
+
+function renderBucketTable(buckets) {
+  const tbody = document.getElementById('bucketTbody');
+  let rows = [...buckets];
+  if (state.sort.col) {
+    rows.sort((a, b) => {
+      const va = a[state.sort.col], vb = b[state.sort.col];
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      const type = document.querySelector(`th[data-col="${state.sort.col}"]`)?.dataset.type;
+      if (type === 'num') return (Number(va) - Number(vb)) * state.sort.dir;
+      return String(va).localeCompare(String(vb)) * state.sort.dir;
+    });
+  }
   tbody.innerHTML = rows.map(r => `
     <tr class="border-b border-gray-100 hover:bg-gray-50">
-      <td class="px-4 py-3">${r.date}</td>
+      <td class="px-4 py-3">${bucketDisplayLabel(r.bucket, state.unit)}</td>
       <td class="px-4 py-3 text-right num">${fmtNum(r.buyers)}명</td>
       <td class="px-4 py-3 text-right num">${fmtNum(r.orders)}건</td>
       <td class="px-4 py-3 text-right num">${fmtNum(r.items)}개</td>
@@ -160,99 +344,176 @@ function renderDaily(rows) {
   `).join('');
 }
 
-function renderByMall(rows) {
-  if (!rows || rows.length === 0) return;
-  document.getElementById('byMallSection').style.display = '';
-  const tbody = document.getElementById('byMallTbody');
-  tbody.innerHTML = rows.map(r => `
-    <tr class="border-b border-gray-100 hover:bg-gray-50">
-      <td class="px-4 py-3 font-medium">${r.mall_label}</td>
+function renderByMall() {
+  const totalAll = MALL_IDS.reduce((s, m) => s + MALL_DATA[m].days.reduce((x, d) => x + d.sales, 0), 0);
+  const rows = MALL_IDS.map(m => {
+    const days = MALL_DATA[m].days;
+    const agg = days.reduce((acc, d) => ({
+      buyers: acc.buyers + d.buyers, orders: acc.orders + d.orders,
+      items: acc.items + d.items, sales: acc.sales + d.sales,
+    }), { buyers: 0, orders: 0, items: 0, sales: 0 });
+    return {
+      mall_id: m, mall_label: MALL_DATA[m].label,
+      ...agg,
+      aov: agg.orders ? Math.round(agg.sales / agg.orders) : 0,
+      share: totalAll ? (agg.sales / totalAll) * 100 : 0,
+    };
+  }).sort((a, b) => b.sales - a.sales);
+
+  document.getElementById('byMallTbody').innerHTML = rows.map(r => `
+    <tr class="border-b border-gray-100 hover:bg-gray-50 cursor-pointer" onclick="setBrand('${r.mall_id}')">
+      <td class="px-4 py-3 font-medium">
+        <span class="inline-block w-2 h-2 rounded-full mr-2 align-middle" style="background-color:${MALL_COLORS[r.mall_id] || '#999'};"></span>
+        ${r.mall_label}
+      </td>
       <td class="px-4 py-3 text-right num">${fmtNum(r.buyers)}명</td>
       <td class="px-4 py-3 text-right num">${fmtNum(r.orders)}건</td>
       <td class="px-4 py-3 text-right num">${fmtNum(r.items)}개</td>
       <td class="px-4 py-3 text-right num">${fmtNum(r.sales)}</td>
       <td class="px-4 py-3 text-right num text-gray-500">${fmtNum(r.aov)}</td>
+      <td class="px-4 py-3 text-right num text-gray-500">${r.share.toFixed(1)}%</td>
     </tr>
   `).join('');
 }
 
-renderDaily(DAILY_DATA);
-renderByMall(BY_MALL_DATA);
+function renderChart(buckets) {
+  const ctx = document.getElementById('salesChart');
+  if (chart) chart.destroy();
+  const labels = buckets.map(b => bucketDisplayLabel(b.bucket, state.unit));
+  let datasets;
+  if (state.chartMode === 'overlay' && MALL_IDS.length > 1) {
+    document.getElementById('chart-mode-label').textContent = '브랜드별 시점 매출 비교';
+    datasets = MALL_IDS.map(m => {
+      const dailyRows = brandDays(m);
+      const bk = bucketize(dailyRows, state.unit);
+      return {
+        label: MALL_DATA[m].label,
+        data: bk.map(b => b.sales),
+        borderColor: MALL_COLORS[m] || '#999',
+        backgroundColor: (MALL_COLORS[m] || '#999') + '20',
+        tension: 0.3, fill: false, pointRadius: 3, pointHoverRadius: 5,
+      };
+    });
+  } else {
+    document.getElementById('chart-mode-label').textContent =
+      `${state.brand === ALL_BRANDS ? '전체' : MALL_DATA[state.brand].label} 매출 추이`;
+    const color = state.brand === ALL_BRANDS ? ALL_COLOR : (MALL_COLORS[state.brand] || '#999');
+    datasets = [{
+      label: state.brand === ALL_BRANDS ? '전체' : MALL_DATA[state.brand].label,
+      data: buckets.map(b => b.sales),
+      borderColor: color,
+      backgroundColor: color + '15',
+      tension: 0.3, fill: true, pointRadius: 4, pointHoverRadius: 6,
+    }];
+  }
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: state.chartMode === 'overlay' },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => ` ${ctx.dataset.label}: ${fmtMoney(ctx.parsed.y)}`,
+          },
+        },
+      },
+      scales: {
+        y: { ticks: { callback: (v) => '₩' + (v / 1_000_000).toFixed(1) + 'M' } },
+      },
+    },
+  });
+}
 
-// Sorting
-let sortState = { col: null, dir: 1 };
+function renderBrandToggles() {
+  const container = document.getElementById('brand-toggle-group');
+  const buttons = [
+    { id: ALL_BRANDS, label: '전체' },
+    ...MALL_IDS.map(m => ({ id: m, label: MALL_DATA[m].label })),
+  ];
+  container.innerHTML = buttons.map(b => `
+    <button class="btn-toggle ${b.id === state.brand ? 'btn-toggle-on' : 'btn-toggle-off'}"
+            data-brand="${b.id}">${b.label}</button>
+  `).join('');
+  container.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => setBrand(btn.dataset.brand));
+  });
+}
+
+window.setBrand = function (brand) {
+  state.brand = brand;
+  document.querySelectorAll('#brand-toggle-group button').forEach(b => {
+    const on = b.dataset.brand === brand;
+    b.classList.toggle('btn-toggle-on', on);
+    b.classList.toggle('btn-toggle-off', !on);
+  });
+  render();
+};
+
+function setUnit(unit) {
+  state.unit = unit;
+  document.querySelectorAll('#unit-toggle-group button').forEach(b => {
+    const on = b.dataset.unit === unit;
+    b.classList.toggle('btn-toggle-on', on);
+    b.classList.toggle('btn-toggle-off', !on);
+  });
+  state.sort = { col: null, dir: 1 };
+  render();
+}
+
+function setChartMode(mode) {
+  state.chartMode = mode;
+  document.getElementById('chart-mode-single').classList.toggle('btn-toggle-on', mode === 'single');
+  document.getElementById('chart-mode-single').classList.toggle('btn-toggle-off', mode !== 'single');
+  document.getElementById('chart-mode-overlay').classList.toggle('btn-toggle-on', mode === 'overlay');
+  document.getElementById('chart-mode-overlay').classList.toggle('btn-toggle-off', mode !== 'overlay');
+  render();
+}
+
+document.querySelectorAll('#unit-toggle-group button').forEach(b => {
+  b.addEventListener('click', () => setUnit(b.dataset.unit));
+});
+document.getElementById('chart-mode-single').addEventListener('click', () => setChartMode('single'));
+document.getElementById('chart-mode-overlay').addEventListener('click', () => setChartMode('overlay'));
+
 document.querySelectorAll('th.sortable').forEach(th => {
   th.addEventListener('click', () => {
     const col = th.dataset.col;
-    const type = th.dataset.type;
-    const table = th.closest('table');
-    const tbody = table.querySelector('tbody');
-    const dataset = tbody.id === 'dailyTbody' ? DAILY_DATA : BY_MALL_DATA;
-    const dir = (sortState.col === col) ? -sortState.dir : 1;
-    sortState = { col, dir };
-    dataset.sort((a, b) => {
-      const va = a[col], vb = b[col];
-      if (va == null) return 1;
-      if (vb == null) return -1;
-      if (type === 'num') return (Number(va) - Number(vb)) * dir;
-      return String(va).localeCompare(String(vb)) * dir;
-    });
-    table.querySelectorAll('th').forEach(t => t.classList.remove('sort-asc', 'sort-desc'));
+    const dir = state.sort.col === col ? -state.sort.dir : 1;
+    state.sort = { col, dir };
+    document.querySelectorAll('th.sortable').forEach(t => t.classList.remove('sort-asc', 'sort-desc'));
     th.classList.add(dir === 1 ? 'sort-asc' : 'sort-desc');
-    if (tbody.id === 'dailyTbody') renderDaily(dataset); else renderByMall(dataset);
+    render();
   });
 });
 
-// Chart
-const ctx = document.getElementById('salesChart');
-new Chart(ctx, {
-  type: 'line',
-  data: {
-    labels: DAILY_DATA.map(r => r.date.slice(5)),
-    datasets: [{
-      label: '매출액',
-      data: DAILY_DATA.map(r => r.sales),
-      borderColor: '#2563eb',
-      backgroundColor: 'rgba(37, 99, 235, 0.08)',
-      tension: 0.3,
-      fill: true,
-      pointRadius: 4,
-      pointHoverRadius: 6
-    }]
-  },
-  options: {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        callbacks: {
-          label: (ctx) => '₩' + ctx.parsed.y.toLocaleString('ko-KR')
-        }
-      }
-    },
-    scales: {
-      y: {
-        ticks: {
-          callback: (v) => '₩' + (v/1000000).toFixed(1) + 'M'
-        }
-      }
-    }
-  }
-});
-
 function downloadCSV() {
-  const header = ['일시','구매자수','구매건수','구매개수','매출액','비교값(전일)','증감'];
-  const rows = DAILY_DATA.map(r => [r.date, r.buyers, r.orders, r.items, r.sales, r.compare ?? '', r.delta ?? '']);
+  const dailyRows = brandDays(state.brand);
+  const baselinePrev = state.unit === 'daily' ? brandPrevSales(state.brand) : null;
+  const buckets = withCompare(bucketize(dailyRows, state.unit), baselinePrev);
+  const header = ['일시', '구매자수', '구매건수', '구매개수', '매출액', '비교값', '증감'];
+  const rows = buckets.map(r => [
+    bucketDisplayLabel(r.bucket, state.unit),
+    r.buyers, r.orders, r.items, r.sales,
+    r.compare ?? '', r.delta ?? '',
+  ]);
   const csv = '﻿' + [header, ...rows].map(row => row.join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'sales_daily_' + '__PERIOD_FILE__' + '.csv';
+  const brand = state.brand === ALL_BRANDS ? 'all' : state.brand;
+  a.download = `sales_${state.unit}_${brand}_${PERIOD_START}_to_${PERIOD_END}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
+
+if (MALL_IDS.length === 1) state.brand = MALL_IDS[0];
+renderBrandToggles();
+render();
 </script>
 </body>
 </html>
