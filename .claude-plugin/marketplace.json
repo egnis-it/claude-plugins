@@ -1,0 +1,13 @@
+{
+  "name": "egnis-tools",
+  "owner": {
+    "name": "Egnis IT"
+  },
+  "plugins": [
+    {
+      "name": "egnis-cafe24",
+      "source": "./plugins/egnis-cafe24",
+      "description": "Cafe24 자사몰 매출 대시보드 skill. egnis-mcp의 cafe24_get_access_token으로 토큰을 발급받아 cafe24api.com을 직접 호출, 9개 자사몰 매출 데이터를 일자별로 집계해 단일 HTML 대시보드와 CSV를 생성한다."
+    }
+  ]
+}

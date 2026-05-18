@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>매출 종합 분석 — __BRAND_LABEL__ · __PERIOD_LABEL__</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif; }
+  .num { font-variant-numeric: tabular-nums; }
+  .delta-pos { color: #059669; }
+  .delta-neg { color: #dc2626; }
+  th.sortable { cursor: pointer; user-select: none; }
+  th.sortable:hover { background-color: #f3f4f6; }
+  th.sortable::after { content: " ↕"; color: #9ca3af; font-size: 0.75rem; }
+  th.sort-asc::after { content: " ↑"; color: #2563eb; }
+  th.sort-desc::after { content: " ↓"; color: #2563eb; }
+</style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+<div class="max-w-7xl mx-auto p-6 md:p-10">
+
+  <!-- Header -->
+  <div class="flex items-baseline gap-3 mb-6">
+    <h1 class="text-2xl font-bold">매출 종합 분석</h1>
+    <span class="text-sm text-gray-500">__BRAND_LABEL__ · __PERIOD_LABEL__</span>
+  </div>
+
+  <!-- Filter card (read-only display) -->
+  <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+    <div class="grid grid-cols-[80px_1fr] gap-y-3 text-sm">
+      <div class="text-gray-500">조회기간</div>
+      <div class="font-medium">__PERIOD_LABEL__ <span class="text-gray-400">(__PERIOD_DAYS__일)</span></div>
+      <div class="text-gray-500">브랜드</div>
+      <div class="font-medium">__BRAND_LABEL__</div>
+      <div class="text-gray-500">생성시각</div>
+      <div class="text-gray-500">__GENERATED_AT__</div>
+    </div>
+  </div>
+
+  <!-- KPI cards -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+    <div class="bg-white border border-gray-200 rounded-lg p-4">
+      <div class="text-xs text-gray-500 mb-1">구매자수 합계</div>
+      <div class="text-2xl font-semibold num">__KPI_BUYERS__<span class="text-sm text-gray-400 ml-1">명</span></div>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-lg p-4">
+      <div class="text-xs text-gray-500 mb-1">구매건수 합계</div>
+      <div class="text-2xl font-semibold num">__KPI_ORDERS__<span class="text-sm text-gray-400 ml-1">건</span></div>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-lg p-4">
+      <div class="text-xs text-gray-500 mb-1">구매개수 합계</div>
+      <div class="text-2xl font-semibold num">__KPI_ITEMS__<span class="text-sm text-gray-400 ml-1">개</span></div>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-lg p-4">
+      <div class="text-xs text-gray-500 mb-1">매출액 합계</div>
+      <div class="text-2xl font-semibold num">₩__KPI_SALES__</div>
+    </div>
+  </div>
+
+  <!-- Trend chart -->
+  <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-base font-semibold">매출 추이</h2>
+      <div class="text-xs text-gray-400">단위: 원</div>
+    </div>
+    <div class="h-72">
+      <canvas id="salesChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Daily table -->
+  <div class="bg-white border border-gray-200 rounded-lg overflow-hidden mb-6">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+      <h2 class="text-base font-semibold">일자별 매출 (전일 비교)</h2>
+      <button onclick="downloadCSV()" class="text-xs px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50">⬇ CSV 다운로드</button>
+    </div>
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-gray-600">
+        <tr>
+          <th class="sortable text-left px-4 py-3 font-medium" data-col="date" data-type="str">일시</th>
+          <th class="sortable text-right px-4 py-3 font-medium" data-col="buyers" data-type="num">구매자수</th>
+          <th class="sortable text-right px-4 py-3 font-medium" data-col="orders" data-type="num">구매건수</th>
+          <th class="sortable text-right px-4 py-3 font-medium" data-col="items" data-type="num">구매개수</th>
+          <th class="sortable text-right px-4 py-3 font-medium" data-col="sales" data-type="num">매출액</th>
+          <th class="sortable text-right px-4 py-3 font-medium" data-col="compare" data-type="num">비교값(전일)</th>
+          <th class="sortable text-right px-4 py-3 font-medium" data-col="delta" data-type="num">증감</th>
+        </tr>
+      </thead>
+      <tbody id="dailyTbody"></tbody>
+      <tfoot class="bg-gray-50 border-t-2 border-gray-200 font-medium">
+        <tr>
+          <td class="px-4 py-3">합계</td>
+          <td class="px-4 py-3 text-right num">__KPI_BUYERS__명</td>
+          <td class="px-4 py-3 text-right num">__KPI_ORDERS__건</td>
+          <td class="px-4 py-3 text-right num">__KPI_ITEMS__개</td>
+          <td class="px-4 py-3 text-right num">__KPI_SALES__</td>
+          <td class="px-4 py-3"></td>
+          <td class="px-4 py-3"></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <!-- Per-mall breakdown (only shown if multi-mall) -->
+  <div id="byMallSection" class="bg-white border border-gray-200 rounded-lg overflow-hidden mb-6" style="display:none;">
+    <div class="px-5 py-4 border-b border-gray-200">
+      <h2 class="text-base font-semibold">자사몰별 매출 (기간 합계)</h2>
+    </div>
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-gray-600">
+        <tr>
+          <th class="sortable text-left px-4 py-3 font-medium" data-col="mall_label" data-type="str">자사몰</th>
+          <th class="sortable text-right px-4 py-3 font-medium" data-col="buyers" data-type="num">구매자수</th>
+          <th class="sortable text-right px-4 py-3 font-medium" data-col="orders" data-type="num">구매건수</th>
+          <th class="sortable text-right px-4 py-3 font-medium" data-col="items" data-type="num">구매개수</th>
+          <th class="sortable text-right px-4 py-3 font-medium" data-col="sales" data-type="num">매출액</th>
+          <th class="sortable text-right px-4 py-3 font-medium" data-col="aov" data-type="num">건당 객단가</th>
+        </tr>
+      </thead>
+      <tbody id="byMallTbody"></tbody>
+    </table>
+  </div>
+
+  <div class="text-xs text-gray-400 mt-8">
+    데이터 출처: Cafe24 Admin reports/hourlysales + Analytics members/sales · egnis-cafe24 plugin
+  </div>
+</div>
+
+<script>
+// Injected by Python:
+const DAILY_DATA = __DAILY_JSON__;
+const BY_MALL_DATA = __BY_MALL_JSON__;
+
+const fmtNum = (n) => (n == null ? '' : Number(n).toLocaleString('ko-KR'));
+const fmtWon = (n) => (n == null ? '' : '₩' + Number(n).toLocaleString('ko-KR'));
+const fmtDelta = (n) => {
+  if (n == null) return '<span class="text-gray-300">—</span>';
+  const v = Number(n);
+  if (v === 0) return '<span class="text-gray-400">0</span>';
+  const cls = v > 0 ? 'delta-pos' : 'delta-neg';
+  const sign = v > 0 ? '+' : '';
+  return `<span class="${cls} num">${sign}${v.toLocaleString('ko-KR')}</span>`;
+};
+
+// Render daily table
+function renderDaily(rows) {
+  const tbody = document.getElementById('dailyTbody');
+  tbody.innerHTML = rows.map(r => `
+    <tr class="border-b border-gray-100 hover:bg-gray-50">
+      <td class="px-4 py-3">${r.date}</td>
+      <td class="px-4 py-3 text-right num">${fmtNum(r.buyers)}명</td>
+      <td class="px-4 py-3 text-right num">${fmtNum(r.orders)}건</td>
+      <td class="px-4 py-3 text-right num">${fmtNum(r.items)}개</td>
+      <td class="px-4 py-3 text-right num">${fmtNum(r.sales)}</td>
+      <td class="px-4 py-3 text-right num text-gray-500">${r.compare == null ? '—' : fmtNum(r.compare)}</td>
+      <td class="px-4 py-3 text-right">${fmtDelta(r.delta)}</td>
+    </tr>
+  `).join('');
+}
+
+function renderByMall(rows) {
+  if (!rows || rows.length === 0) return;
+  document.getElementById('byMallSection').style.display = '';
+  const tbody = document.getElementById('byMallTbody');
+  tbody.innerHTML = rows.map(r => `
+    <tr class="border-b border-gray-100 hover:bg-gray-50">
+      <td class="px-4 py-3 font-medium">${r.mall_label}</td>
+      <td class="px-4 py-3 text-right num">${fmtNum(r.buyers)}명</td>
+      <td class="px-4 py-3 text-right num">${fmtNum(r.orders)}건</td>
+      <td class="px-4 py-3 text-right num">${fmtNum(r.items)}개</td>
+      <td class="px-4 py-3 text-right num">${fmtNum(r.sales)}</td>
+      <td class="px-4 py-3 text-right num text-gray-500">${fmtNum(r.aov)}</td>
+    </tr>
+  `).join('');
+}
+
+renderDaily(DAILY_DATA);
+renderByMall(BY_MALL_DATA);
+
+// Sorting
+let sortState = { col: null, dir: 1 };
+document.querySelectorAll('th.sortable').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.col;
+    const type = th.dataset.type;
+    const table = th.closest('table');
+    const tbody = table.querySelector('tbody');
+    const dataset = tbody.id === 'dailyTbody' ? DAILY_DATA : BY_MALL_DATA;
+    const dir = (sortState.col === col) ? -sortState.dir : 1;
+    sortState = { col, dir };
+    dataset.sort((a, b) => {
+      const va = a[col], vb = b[col];
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      if (type === 'num') return (Number(va) - Number(vb)) * dir;
+      return String(va).localeCompare(String(vb)) * dir;
+    });
+    table.querySelectorAll('th').forEach(t => t.classList.remove('sort-asc', 'sort-desc'));
+    th.classList.add(dir === 1 ? 'sort-asc' : 'sort-desc');
+    if (tbody.id === 'dailyTbody') renderDaily(dataset); else renderByMall(dataset);
+  });
+});
+
+// Chart
+const ctx = document.getElementById('salesChart');
+new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: DAILY_DATA.map(r => r.date.slice(5)),
+    datasets: [{
+      label: '매출액',
+      data: DAILY_DATA.map(r => r.sales),
+      borderColor: '#2563eb',
+      backgroundColor: 'rgba(37, 99, 235, 0.08)',
+      tension: 0.3,
+      fill: true,
+      pointRadius: 4,
+      pointHoverRadius: 6
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => '₩' + ctx.parsed.y.toLocaleString('ko-KR')
+        }
+      }
+    },
+    scales: {
+      y: {
+        ticks: {
+          callback: (v) => '₩' + (v/1000000).toFixed(1) + 'M'
+        }
+      }
+    }
+  }
+});
+
+function downloadCSV() {
+  const header = ['일시','구매자수','구매건수','구매개수','매출액','비교값(전일)','증감'];
+  const rows = DAILY_DATA.map(r => [r.date, r.buyers, r.orders, r.items, r.sales, r.compare ?? '', r.delta ?? '']);
+  const csv = '﻿' + [header, ...rows].map(row => row.join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'sales_daily_' + '__PERIOD_FILE__' + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>
