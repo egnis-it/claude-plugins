@@ -1,9 +1,20 @@
 #!/usr/bin/env python3
 """
-fetch_sales.py — Directly hit Cafe24 Admin/Analytics APIs using tokens minted
-by the egnis-mcp `cafe24_get_access_token` tool.
+fetch_sales.py — Cafe24 hourlysales + Analytics members/sales 데이터 수집.
 
-Input is a JSON env var `CAFE24_TOKENS_JSON`:
+PR-B 마이그레이션 (Phase 6, 2026-05-18):
+  - 기존 자체 구현 (AuthError, http_get_json, CAFE24_API_VERSION, fetch_hourlysales_day,
+    fetch_members_sales_day) 을 scripts/lib/cafe24_client.Cafe24Client 호출로 교체.
+  - DRY-DEBT 주석 5건 모두 제거 (ADR-001 supersede).
+  - 출력 JSON 형식은 기존과 byte-level 동일 (baseline diff = 0 보장).
+    - hourlysales_<mall>.json: {"ok": True, "mall_id": ..., "data": {"hourlysales": [...]}}
+    - members_sales_<mall>_<day>.json: {"ok": True, "mall_id": ..., "data": {"sales": [...]}}
+
+Plan: .omc/plans/cafe24-mcp-skills-v3.md §7 Phase 6
+ADR-001: .omc/plans/adr/ADR-001-fetch-sales-no-edit.md (PR-B에서 supersede)
+ADR-003 §3.2: urllib only (cafe24_client 라이브러리도 동일 정책)
+
+Input env: CAFE24_TOKENS_JSON
   {
     "<mall_id>": {
       "access_token": "...",
@@ -13,10 +24,6 @@ Input is a JSON env var `CAFE24_TOKENS_JSON`:
     },
     ...
   }
-
-Output:
-  <out-dir>/hourlysales_<mall_id>.json              (one per mall, all days)
-  <out-dir>/members_sales_<mall_id>_<YYYY-MM-DD>.json (one per mall per day)
 
 Exit codes:
   0 — success
@@ -30,22 +37,25 @@ import datetime as dt
 import json
 import os
 import sys
-import urllib.parse
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-CAFE24_API_VERSION = "2026-03-01"
-ANALYTICS_HOST = "https://ca-api.cafe24data.com"
+# scripts/ 디렉토리를 sys.path에 추가 (모든 호출 시나리오 호환 — Phase 0 spike 결과)
+_SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+from lib.cafe24_client import (  # noqa: E402
+    Cafe24Client,
+    Cafe24RateLimited,
+    Cafe24TokenExpired,
+)
+
 HOURLYSALES_FIELDS = "collection_date,order_count,item_count,sales"
-TIMEOUT_SECONDS = 30
 
 
-class AuthError(Exception):
-    def __init__(self, mall_id: str, status: int):
-        self.mall_id = mall_id
-        self.status = status
-        super().__init__(f"auth failed for mall={mall_id} status={status}")
+# 호환 alias: 기존 코드/외부 의존성이 fetch_sales.AuthError 를 import 할 수 있어 유지
+AuthError = Cafe24TokenExpired
 
 
 def daterange(start: dt.date, end: dt.date):
@@ -55,42 +65,29 @@ def daterange(start: dt.date, end: dt.date):
         d += dt.timedelta(days=1)
 
 
-def http_get_json(url: str, headers: dict[str, str]) -> dict:
-    req = urllib.request.Request(url, headers=headers, method="GET")
-    try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as resp:
-            body = resp.read().decode("utf-8")
-            return {"status": resp.status, "body": json.loads(body) if body else {}}
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace")
-        return {"status": e.code, "body": body}
+def fetch_hourlysales_day(client: Cafe24Client, mall_id: str, day: str) -> list[dict]:
+    """One day of hourlysales for one mall. Returns the data.hourlysales[] array.
 
-
-def fetch_hourlysales_day(token_info: dict, mall_id: str, day: str) -> list[dict]:
-    """One day of hourlysales for one mall. Returns the data.hourlysales[] array."""
-    api_host = token_info["api_host"].rstrip("/")
-    params = {
-        "start_date": day,
-        "end_date": day,
-        "fields": HOURLYSALES_FIELDS,
-    }
-    shop_no = token_info.get("shop_no")
-    if shop_no is not None:
-        params["shop_no"] = str(shop_no)
-    url = f"{api_host}/api/v2/admin/reports/hourlysales?" + urllib.parse.urlencode(params)
-    headers = {
-        "Authorization": f"Bearer {token_info['access_token']}",
-        "X-Cafe24-Api-Version": CAFE24_API_VERSION,
-        "Content-Type": "application/json",
-    }
-    result = http_get_json(url, headers)
-    if result["status"] in (401, 403):
-        raise AuthError(mall_id, result["status"])
-    if result["status"] != 200:
+    Cafe24Client.get() 위임. 응답 형식 변환만 담당.
+    """
+    result = client.get(
+        mall_id,
+        "/api/v2/admin/reports/hourlysales",
+        params={
+            "start_date": day,
+            "end_date": day,
+            "fields": HOURLYSALES_FIELDS,
+        },
+    )
+    status = result.get("status", 0)
+    if status != 200:
+        body = result.get("body", "")
         raise RuntimeError(
-            f"hourlysales {mall_id} {day} returned {result['status']}: {str(result['body'])[:200]}"
+            f"hourlysales {mall_id} {day} returned {status}: {str(body)[:200]}"
         )
-    rows = (result["body"] or {}).get("hourlysales", []) or []
+    body = result.get("body", {})
+    rows = body.get("hourlysales", []) if isinstance(body, dict) else []
+    rows = rows or []
     # Slim to required fields (already filtered by `fields` param but be defensive).
     return [
         {
@@ -103,28 +100,25 @@ def fetch_hourlysales_day(token_info: dict, mall_id: str, day: str) -> list[dict
     ]
 
 
-def fetch_members_sales_day(token_info: dict, mall_id: str, day: str) -> dict:
-    """One day of members/sales for one mall. Returns a single aggregated row."""
-    params = {
-        "mall_id": token_info.get("source_mall_id") or mall_id,
-        "start_date": day,
-        "end_date": day,
-    }
-    shop_no = token_info.get("shop_no")
-    if shop_no is not None:
-        params["shop_no"] = str(shop_no)
-    url = f"{ANALYTICS_HOST}/members/sales?" + urllib.parse.urlencode(params)
-    headers = {
-        "Authorization": f"Bearer {token_info['access_token']}",
-    }
-    result = http_get_json(url, headers)
-    if result["status"] in (401, 403):
-        raise AuthError(mall_id, result["status"])
-    if result["status"] != 200:
+def fetch_members_sales_day(client: Cafe24Client, mall_id: str, day: str) -> dict:
+    """One day of members/sales for one mall. Returns a single aggregated row.
+
+    CA Analytics API (ca-api.cafe24data.com/members/sales) 호출. Cafe24Client.get_ca() 위임.
+    """
+    result = client.get_ca(
+        mall_id,
+        "/members/sales",
+        params={"start_date": day, "end_date": day},
+    )
+    status = result.get("status", 0)
+    if status != 200:
+        body = result.get("body", "")
         raise RuntimeError(
-            f"members/sales {mall_id} {day} returned {result['status']}: {str(result['body'])[:200]}"
+            f"members/sales {mall_id} {day} returned {status}: {str(body)[:200]}"
         )
-    sales = (result["body"] or {}).get("sales", []) or []
+    body = result.get("body", {})
+    sales = body.get("sales", []) if isinstance(body, dict) else []
+    sales = sales or []
     if not sales:
         return {
             "member_order_count": 0,
@@ -137,7 +131,7 @@ def fetch_members_sales_day(token_info: dict, mall_id: str, day: str) -> dict:
 
 def collect_mall(
     mall_id: str,
-    token_info: dict,
+    client: Cafe24Client,
     days: list[str],
     out_dir: Path,
 ) -> tuple[str, list[str]]:
@@ -149,14 +143,17 @@ def collect_mall(
         # Skip files that already exist for this day (resume-friendly).
         members_file = out_dir / f"members_sales_{mall_id}_{day}.json"
         if not members_file.exists():
-            row = fetch_members_sales_day(token_info, mall_id, day)
+            row = fetch_members_sales_day(client, mall_id, day)
             members_file.write_text(
-                json.dumps({"ok": True, "mall_id": mall_id, "data": {"sales": [row]}}, ensure_ascii=False),
+                json.dumps(
+                    {"ok": True, "mall_id": mall_id, "data": {"sales": [row]}},
+                    ensure_ascii=False,
+                ),
                 encoding="utf-8",
             )
 
         # hourlysales: per-day call, aggregated into one mall-level file below.
-        rows = fetch_hourlysales_day(token_info, mall_id, day)
+        rows = fetch_hourlysales_day(client, mall_id, day)
         hourly_rows.extend(rows)
 
     # Write one combined file per mall.
@@ -180,7 +177,8 @@ def main() -> int:
     ap.add_argument(
         "--include-prev-day",
         action="store_true",
-        help="Also fetch period_start - 1 day so the dashboard can compute the day-over-day delta for the first display day",
+        help="Also fetch period_start - 1 day so the dashboard can compute the "
+             "day-over-day delta for the first display day",
     )
     args = ap.parse_args()
 
@@ -205,6 +203,9 @@ def main() -> int:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # 단일 Cafe24Client 인스턴스를 모든 mall이 공유 (tokens_json 전체 전달).
+    client = Cafe24Client(tokens)
+
     auth_failures: list[str] = []
     other_failures: list[str] = []
 
@@ -212,17 +213,21 @@ def main() -> int:
     # Token Bucket per-URL burst cap.
     with ThreadPoolExecutor(max_workers=min(9, len(tokens))) as pool:
         futures = {
-            pool.submit(collect_mall, mall_id, token_info, days, out_dir): mall_id
-            for mall_id, token_info in tokens.items()
+            pool.submit(collect_mall, mall_id, client, days, out_dir): mall_id
+            for mall_id in tokens.keys()
         }
         for fut in as_completed(futures):
             mall_id = futures[fut]
             try:
                 fut.result()
                 print(f"✓ {mall_id} — {len(days)} days fetched", file=sys.stderr)
-            except AuthError as e:
+            except Cafe24TokenExpired as e:
                 auth_failures.append(e.mall_id)
                 print(f"✗ {mall_id} — auth failure (status={e.status})", file=sys.stderr)
+            except Cafe24RateLimited as e:
+                other_failures.append(mall_id)
+                print(f"✗ {mall_id} — rate limited (remain={e.remain_seconds}s)",
+                      file=sys.stderr)
             except Exception as e:
                 other_failures.append(mall_id)
                 print(f"✗ {mall_id} — {e}", file=sys.stderr)
