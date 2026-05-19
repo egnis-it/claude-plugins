@@ -1,5 +1,8 @@
 {
   "name": "egnis-cafe24",
   "description": "Cafe24 자사몰 매출/상품 대시보드 생성 skill 모음 (egnis-mcp 기반)",
-  "author": "egnis"
+  "author": {
+    "name": "Egnis IT",
+    "email": "it@egnis.kr"
+  }
 }
