@@ -22,12 +22,44 @@ description: Cafe24 9개 자사몰의 주문 데이터를 증분(incremental)으
 | `--brand` | `all` | 9개 몰 전부. alias 가능: 클룹, 랩노쉬 등 |
 | `--since` | `2026-05-01` | **최초 실행** 시작일. state 있으면 무시됨 |
 | `--until` | 오늘 | fetch 종료일 |
-| `--base-dir` | `./reports/cafe24/all/orders_incremental` | state/data/logs 저장 위치 |
+| `--base-dir` | **사용자 컨펌 후 결정** | state/data/logs 저장 위치 (아래 0단계 참조) |
+
+## 0단계: 저장 경로 컨펌 (필수, 최초 실행 시)
+
+스킬은 사용자에게 묻지 않고 임의 경로에 파일을 만들지 **않는다**. 다음 순서로 진행:
+
+### (a) 사용자가 명시 지정한 경우
+호출 메시지에 경로 키워드(예: "Documents 폴더에", "바탕화면에", "--base-dir=...")가 있으면 그 경로를 사용. 절대경로 변환 후 진행.
+
+### (b) 이전 실행 기록이 있는 경우
+`~/.config/cafe24-orders-incremental/config.json` (Linux/macOS) 또는
+`%APPDATA%\cafe24-orders-incremental\config.json` (Windows) 에서 마지막 사용 경로를 읽음.
+
+**확인 메시지** (간단한 yes/no):
+```
+이전에 적재한 경로가 있습니다:
+  /Users/<user>/Documents/cafe24-orders
+
+[1] 같은 경로에 계속 쌓기 (권장)
+[2] 다른 경로 새로 지정
+```
+
+### (c) 최초 실행이거나 사용자가 새 경로 원함
+다음 OS-aware 후보를 AskUserQuestion 으로 제시:
+
+- **macOS**: `~/Documents/cafe24-orders/`, `~/Desktop/cafe24-orders/`, 현재 cwd, 직접 입력
+- **Windows**: `%USERPROFILE%\Documents\cafe24-orders\`, `%USERPROFILE%\Desktop\cafe24-orders\`, 현재 cwd, 직접 입력
+- **Linux**: `~/cafe24-orders/`, `~/Documents/cafe24-orders/`, 현재 cwd, 직접 입력
+
+선택된 경로를 `~`/`%USERPROFILE%` 전개 후 절대경로 변환. 권한 검증 (`os.access(parent, os.W_OK)`) 후 진행.
+
+### (d) 컨펌된 경로 캐시
+스크립트가 종료 시 `config.json`에 `{"last_base_dir": "<absolute_path>", "history": [...]}` 저장. 다음 실행 시 (b) 단계에서 재사용.
 
 ## 산출물
 
 ```
-./reports/cafe24/all/orders_incremental/
+<컨펌된 base-dir>/
 ├── state/
 │   └── last_fetched.json          ← brand별 마지막 fetch 날짜 + 실행 로그
 ├── data/
@@ -43,7 +75,7 @@ description: Cafe24 9개 자사몰의 주문 데이터를 증분(incremental)으
 
 ## 워크플로우
 
-### 1단계: 토큰 발급
+### 1단계: 토큰 발급 (0단계 경로 컨펌 완료 후)
 
 대상 mall_id 9개에 대해 parallel 호출:
 

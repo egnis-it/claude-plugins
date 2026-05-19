@@ -55,6 +55,60 @@ from lib.xlsx_writer import (  # noqa: E402
 ORDERS_LIMIT = 1000
 DEFAULT_SINCE = "2026-05-01"  # 사용자 요청 시작일
 
+
+def _config_path() -> Path:
+    """OS별 cafe24-orders-incremental config.json 경로.
+
+    - Windows: %APPDATA%\\cafe24-orders-incremental\\config.json
+    - macOS/Linux: ~/.config/cafe24-orders-incremental/config.json
+    """
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
+        return Path(base) / "cafe24-orders-incremental" / "config.json"
+    return Path.home() / ".config" / "cafe24-orders-incremental" / "config.json"
+
+
+def load_user_config() -> dict:
+    """사용자 config.json 로드. 없거나 손상이면 빈 dict."""
+    p = _config_path()
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_user_config(base_dir: Path) -> None:
+    """마지막 사용 경로 + history 캐시 저장."""
+    p = _config_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    cfg = load_user_config()
+    abs_path = str(base_dir.resolve())
+    cfg["last_base_dir"] = abs_path
+    history = cfg.get("history", [])
+    if abs_path in history:
+        history.remove(abs_path)
+    history.insert(0, abs_path)
+    cfg["history"] = history[:10]  # 최근 10개만
+    cfg["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    p.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def validate_base_dir(base_dir: Path) -> tuple[bool, str]:
+    """저장 경로 검증. (ok, message) 반환."""
+    try:
+        # 부모 디렉토리까지는 생성 가능해야 함
+        parent = base_dir if base_dir.exists() else base_dir.parent
+        # 부모도 없으면 그 위로 올라가며 가장 가까운 기존 디렉토리 찾기
+        while not parent.exists() and parent != parent.parent:
+            parent = parent.parent
+        if not os.access(parent, os.W_OK):
+            return False, f"쓰기 권한 없음: {parent}"
+        return True, "ok"
+    except OSError as e:
+        return False, str(e)
+
 # CSV 헤더 (xlsx_writer의 ORDERS_DETAIL_COLUMNS와 동일 순서, 한국어 라벨)
 CSV_HEADER_LABELS = [label for _, label in ORDERS_DETAIL_COLUMNS]
 CSV_HEADER_KEYS = [key for key, _ in ORDERS_DETAIL_COLUMNS]
@@ -254,7 +308,28 @@ def run(args: argparse.Namespace) -> int:
         print("ERROR: no tokens for requested brands", file=sys.stderr)
         return 1
 
-    base_dir = Path(args.base_dir)
+    # base_dir 결정: 인자 > config.json last_base_dir > 에러
+    base_dir_raw = args.base_dir
+    if not base_dir_raw:
+        cfg = load_user_config()
+        base_dir_raw = cfg.get("last_base_dir")
+        if not base_dir_raw:
+            print(
+                "ERROR: --base-dir 미지정 + config.json도 없음.\n"
+                "  최초 실행 시 skill이 사용자에게 경로를 컨펌받은 후 --base-dir 로 전달해야 함.\n"
+                "  예: --base-dir ~/Documents/cafe24-orders",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"[incremental] config.json에서 last_base_dir 재사용: {base_dir_raw}")
+    # base_dir 정규화: ~ 전개 + 절대경로
+    base_dir = Path(os.path.expanduser(base_dir_raw)).resolve()
+    ok, msg = validate_base_dir(base_dir)
+    if not ok:
+        print(f"ERROR: base-dir 검증 실패: {msg}", file=sys.stderr)
+        print(f"  요청 경로: {base_dir}", file=sys.stderr)
+        return 1
+    print(f"[incremental] base-dir 확정: {base_dir}")
     state_path = base_dir / "state" / "last_fetched.json"
     data_dir = base_dir / "data"
     raw_dir = data_dir / "raw"
@@ -346,10 +421,14 @@ def run(args: argparse.Namespace) -> int:
               file=sys.stderr)
         return 2
 
+    # 성공 시 사용 경로 캐시 (다음 실행 시 같은 경로 자동 제안)
+    save_user_config(base_dir)
+
     print(f"\n[incremental] 완료. 신규 주문 {total_new_rows}건. base={base_dir}")
     print(f"  CSV : {csv_path}")
     print(f"  xlsx: {xlsx_path}")
     print(f"  state: {state_path}")
+    print(f"  config: {_config_path()} (다음 실행 시 같은 경로 자동 제안)")
     return 0
 
 
@@ -365,8 +444,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--until", default=None, help="fetch 종료일 (default: today)")
     p.add_argument(
         "--base-dir",
-        default="./reports/cafe24/all/orders_incremental",
-        help="state/data/logs 저장 base 디렉토리",
+        default=None,
+        help="state/data/logs 저장 base 디렉토리. "
+             "미지정 시 ~/.config/cafe24-orders-incremental/config.json 의 last_base_dir 사용. "
+             "둘 다 없으면 에러 (skill이 사용자에게 컨펌 받은 후 명시적으로 전달해야 함).",
     )
     return p
 
