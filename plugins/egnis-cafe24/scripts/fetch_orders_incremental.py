@@ -166,9 +166,40 @@ def _decide_period(state: dict, mall_id: str, since: str, until: str) -> tuple[s
     return start_date.isoformat(), end_date.isoformat()
 
 
+# PII 제거 대상 키 (raw json 저장 전 sanitize 단계에서 일괄 삭제).
+# embed 파라미터에서 buyer/receivers를 빼도, orders 본체에 buyer_*가 별도로 옴.
+_PII_KEYS_ON_ORDER = (
+    "buyer_name", "buyer_email", "buyer_cellphone", "buyer_phone",
+    "billing_name", "billing_email", "billing_cellphone", "billing_phone",
+    "member_id", "member_email", "member_authentication",
+    "receiver_name", "receiver_email", "receiver_cellphone", "receiver_phone",
+    "address1", "address2", "zipcode",
+    "shipping_address", "shipping_address1", "shipping_address2",
+)
+_PII_NESTED_KEYS = ("buyer", "receivers", "billing_name", "billing_address")
+
+
+def _sanitize_pages(pages: list[dict]) -> list[dict]:
+    """raw json 페이지에서 PII 키 일괄 제거. 매출/주문 분석에 무관한 항목만 삭제."""
+    for page in pages:
+        if not isinstance(page, dict):
+            continue
+        for order in page.get("orders") or []:
+            if not isinstance(order, dict):
+                continue
+            for k in _PII_KEYS_ON_ORDER:
+                order.pop(k, None)
+            for k in _PII_NESTED_KEYS:
+                order.pop(k, None)
+    return pages
+
+
 def _flatten_order(mall_id: str, order: dict) -> dict:
-    """cafe24 orders API 응답 1건 → flat dict (CSV/xlsx 셀)."""
-    buyer = order.get("buyer") or {}
+    """cafe24 orders API 응답 1건 → flat dict (CSV/xlsx 셀).
+
+    PII 적재 금지 정책 (2026-05-19): buyer.name/email/cellphone 등 회원 개인정보는
+    의도적으로 제외. 매출/주문 집계에는 익명화된 order_id만으로 충분.
+    """
     items = order.get("items") or []
     items_count = sum(int(i.get("quantity") or 0) for i in items) if items else 0
     return {
@@ -179,9 +210,6 @@ def _flatten_order(mall_id: str, order: dict) -> dict:
         "payment_date": order.get("payment_date"),
         "order_status": order.get("order_status"),
         "payment_method_name": order.get("payment_method_name"),
-        "buyer_name": (buyer.get("name") or order.get("buyer_name") or ""),
-        "buyer_email": (buyer.get("email") or order.get("buyer_email") or ""),
-        "buyer_cellphone": (buyer.get("cellphone") or order.get("buyer_cellphone") or ""),
         "items_count": items_count,
         "payment_amount": order.get("payment_amount"),
         "actual_payment_amount": order.get("actual_payment_amount"),
@@ -226,12 +254,12 @@ def fetch_mall_range(
                     "end_date": chunk_end,
                     "date_type": "order_date",
                     "limit": str(ORDERS_LIMIT),
-                    "embed": "items,buyer,receivers",
+                    "embed": "items",  # PII 적재 금지: buyer/receivers 제외
                 },
-                max_pages=50,  # ~50K orders/mall/run 안전 한도
+                max_pages=500,  # 한도 상향 (mall당 ~500K 주문 처리 가능)
             )
             all_pages.extend(chunk)
-        pages = all_pages
+        pages = _sanitize_pages(all_pages)
         raw_path.parent.mkdir(parents=True, exist_ok=True)
         raw_path.write_text(
             json.dumps(pages, ensure_ascii=False, indent=2),

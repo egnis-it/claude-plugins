@@ -71,7 +71,18 @@ description: Cafe24 9개 자사몰의 주문 데이터를 증분(incremental)으
 
 **엑셀(.xlsx) 구조**: 시트 9개 — `클룹(cloop)`, `스프린트(sprint)`, ..., 헤더는 한국어. 각 시트는 frozen row 1.
 
-**컬럼**: 몰ID / 브랜드 / 주문번호 / 주문일시 / 결제일시 / 주문상태 / 결제수단 / 주문자 / 이메일 / 휴대폰 / 상품수량 / 결제금액 / 실결제금액 / 배송비 / 통화 / 취소여부 / 환불여부
+**컬럼**: 몰ID / 브랜드 / 주문번호 / 주문일시 / 결제일시 / 주문상태 / 결제수단 / 상품수량 / 결제금액 / 실결제금액 / 배송비 / 통화 / 취소여부 / 환불여부
+
+## ⚠️ PII 적재 금지 정책
+
+본 스킬은 **회원 개인정보(PII)를 절대 적재하지 않습니다.**
+
+- ❌ buyer_name (주문자명)
+- ❌ buyer_email (이메일)
+- ❌ buyer_cellphone (휴대폰)
+- ❌ billing_*, receiver_*, member_id, address1/2, zipcode
+
+매출/주문 집계에는 익명화된 `order_id`만 있으면 충분합니다. cafe24 API 호출 시 `embed=items`만 사용하고 buyer/receivers는 요청하지 않으며, 응답에 포함된 PII 키도 raw json 저장 전 `_sanitize_pages()`로 일괄 제거합니다. 향후 컬럼 추가 시에도 PII는 절대 추가 금지.
 
 ## 워크플로우
 

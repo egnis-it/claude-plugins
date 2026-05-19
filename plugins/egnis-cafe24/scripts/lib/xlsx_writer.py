@@ -52,6 +52,11 @@ def _ensure_openpyxl():
 
 
 # 주문 도메인 컬럼 표준 (CSV 헤더와 1:1 대응)
+#
+# **PII 적재 금지 정책 (2026-05-19 결정):**
+# buyer_name, buyer_email, buyer_cellphone 같은 회원 개인정보는 **수집 대상에서 제외**.
+# 매출 집계/분석 목적에는 익명화된 주문ID만 있으면 충분하며, PII 적재는 개인정보보호
+# 관점에서 위험이 큼. 절대 컬럼 추가 금지.
 ORDERS_DETAIL_COLUMNS: list[tuple[str, str]] = [
     # (csv_key, korean_label)
     ("mall_id", "몰ID"),
@@ -61,9 +66,6 @@ ORDERS_DETAIL_COLUMNS: list[tuple[str, str]] = [
     ("payment_date", "결제일시"),
     ("order_status", "주문상태"),
     ("payment_method_name", "결제수단"),
-    ("buyer_name", "주문자"),
-    ("buyer_email", "이메일"),
-    ("buyer_cellphone", "휴대폰"),
     ("items_count", "상품수량"),
     ("payment_amount", "결제금액"),
     ("actual_payment_amount", "실결제금액"),
